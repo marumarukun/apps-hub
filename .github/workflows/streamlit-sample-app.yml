@@ -1,21 +1,19 @@
-name: Deploy Sample App to Cloud Run
+name: Deploy streamlit-sample-app to Cloud Run
 
 on:
-  # push:
-  #   branches:
-  #     - main
   workflow_dispatch:
     inputs:
       app_name:
-        description: 'App name'
+        description: 'App name for Cloud Run service'
         required: true
-        default: 'sample-app'
+        default: 'streamlit-sample-app'
 
 env:
   IMAGE_NAME: asia-northeast1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/my-app-images/${{ inputs.app_name }}
   WORKLOAD_IDENTITY_PROVIDER: projects/${{ secrets.GCP_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/github-pool/providers/github
   REGION: asia-northeast1
   PORT: 8080
+  APP_DIRECTORY: streamlit-sample-app
 
 permissions:
   id-token: write
@@ -40,7 +38,9 @@ jobs:
       - name: Configure Docker
         run: gcloud auth configure-docker asia-northeast1-docker.pkg.dev
       - name: Build Docker image
-        run: docker build --platform linux/amd64 -t ${{ env.IMAGE_NAME }}:latest -f Dockerfile .
+        run: |
+          cd ${{ env.APP_DIRECTORY }}
+          docker build --platform linux/amd64 -t ${{ env.IMAGE_NAME }}:latest -f Dockerfile .
       - name: Push Docker image
         run: docker push ${{ env.IMAGE_NAME }}:latest
 
@@ -62,7 +62,7 @@ jobs:
         uses: google-github-actions/setup-gcloud@v2
         with:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
-      - name: Deploy Cloud Run for Demo App
+      - name: Deploy Cloud Run
         run: |
           gcloud run deploy ${{ inputs.app_name }} \
           --image ${{ env.IMAGE_NAME }}:latest \
