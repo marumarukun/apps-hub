@@ -95,6 +95,26 @@ jobs:
           TARGET_PROXY_NAME="${APP_SERVICE_NAME}-proxy"
           FORWARDING_RULE_NAME="${APP_SERVICE_NAME}-forwarding-rule"
           
+          # Wait for Cloud Run service to be ready with retry logic
+          echo "Waiting for Cloud Run service to be fully ready..."
+          for i in {1..12}; do
+            STATUS=$(gcloud run services describe ${APP_SERVICE_NAME} --region=${{ env.REGION }} --format="value(status.conditions[0].status)" 2>/dev/null || echo "Unknown")
+            echo "Attempt $i: Cloud Run status is $STATUS"
+            
+            if [ "$STATUS" = "True" ]; then
+              echo "Cloud Run service is ready!"
+              break
+            fi
+            
+            if [ $i -eq 12 ]; then
+              echo "Error: Cloud Run service not ready after 6 minutes"
+              exit 1
+            fi
+            
+            echo "Waiting 30 seconds before next check..."
+            sleep 30
+          done
+          
           # Create Network Endpoint Group for Cloud Run
           gcloud compute network-endpoint-groups create ${NEG_NAME} \
             --region=${{ env.REGION }} \
