@@ -110,27 +110,25 @@ gcloud artifacts repositories create my-app-images \
 gcloud artifacts repositories list
 ```
 
-## 手順5: Cloud Armor セキュリティポリシーの作成
+## 手順5: Terraform初期化
 
 ### なぜこの手順が必要なのか
-IP制限機能で使用するCloud Armorセキュリティポリシーを作成します。このポリシーは全アプリで共通使用され、許可するIPアドレスのみアクセスを許可します。
+IP制限機能はTerraformで管理されます。初回のみTerraformの初期化を実行する必要があります。
 
 ### 具体的な手順
 ```bash
-# Cloud Armorセキュリティポリシーを作成
-gcloud compute security-policies create apps-hub-ip-policy \
-    --description="IP restriction policy for Apps Hub applications"
+# Terraformディレクトリに移動
+cd terraform
 
-# デフォルトルールを拒否に変更（既存のデフォルトルールを更新）
-gcloud compute security-policies rules update 2147483647 \
-    --security-policy apps-hub-ip-policy \
-    --action "deny-403"
+# Terraform初期化
+terraform init
 
-# 作成確認
-gcloud compute security-policies describe apps-hub-ip-policy
+# 設定ファイル確認
+ls -la
+# main.tf, variables.tf, terraform.tfvars, outputs.tf が存在することを確認
 ```
 
-**注意:** 許可IPアドレスのルールは、GitHub Actionsワークフローで自動設定されるため、ここでは設定しません。
+**注意:** Cloud ArmorとLoad Balancerリソースは、GitHub Actionsワークフローで自動作成されるため、手動作成は不要です。
 
 ## 手順6: Workload Identity の設定
 
@@ -218,32 +216,49 @@ echo "Project Number: $PROJECT_NUMBER"
 echo "GitHub Repo: $GITHUB_REPO"
 ```
 
-### GitHub Variablesの設定（IP制限機能用）
+### IP制限の設定（Terraform管理）
 
-IP制限機能を使用するため、以下のVariablesを設定：
+IP制限機能はTerraformで管理されます。IPアドレスの変更は`terraform/terraform.tfvars`ファイルを編集することで行います。
 
-1. リポジトリの「Settings」→「Secrets and variables」→「Actions」
-2. 「Variables」タブを選択
-3. 「New repository variable」で以下を追加：
+**IP変更手順:**
 
-**必要なVariables:**
+1. **terraform.tfvarsファイルを編集:**
+```bash
+# ファイルを開いて編集
+vim terraform/terraform.tfvars
 
-- `ALLOWED_IP_ADDRESSES`: 許可するIPアドレスリスト（カンマ区切り）
-
-**設定例:**
+# または、GitHubのWeb UIから編集可能
 ```
-Variable name: ALLOWED_IP_ADDRESSES
-Value: 203.0.113.5,198.51.100.10,192.0.2.0/24
+
+2. **設定例:**
+```hcl
+allowed_ip_addresses = [
+  "160.249.3.131",        # あなたの現在のIP
+  "192.168.1.100",        # 追加するIP
+  "203.0.113.0/24"        # CIDR形式も可能
+]
 ```
+
+3. **変更をコミット:**
+```bash
+git add terraform/terraform.tfvars
+git commit -m "Update allowed IP addresses"
+git push origin main
+```
+
+4. **次回デプロイ時に自動反映**
+   - GitHub ActionsでアプリをデプロイするとTerraformが実行される
+   - 変更されたIPアドレス設定が自動的に適用される
 
 **IP形式について:**
-- **固定IP**: `203.0.113.5` (特定の1つのIPアドレス)
-- **CIDRブロック**: `192.0.2.0/24` (192.0.2.0～192.0.2.255の範囲)
-- **複数指定**: カンマで区切って複数指定可能
+- **固定IP**: `"203.0.113.5"` (特定の1つのIPアドレス)
+- **CIDRブロック**: `"192.0.2.0/24"` (192.0.2.0～192.0.2.255の範囲)
+- **複数指定**: カンマで区切ってリスト形式で指定
 
-**注意:**
-- IP変更後は次回デプロイ時に反映されます
-- IPアドレス形式が正しいことを確認してください
+**メリット:**
+- ✅ 変更履歴がGitで管理される
+- ✅ コードレビュー可能
+- ✅ 複数人での管理が安全
 
 
 ## 手順8: デプロイテスト（streamlit-sample-app）
