@@ -49,6 +49,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       CLOUD_LOGGING: true
+      SECURITY_POLICY: apps-hub-ip-policy
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -62,6 +63,12 @@ jobs:
         uses: google-github-actions/setup-gcloud@v2
         with:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
+      
+      - name: Update Cloud Armor IP Rules
+        run: |
+          chmod +x scripts/manage-armor-policy.sh
+          ./scripts/manage-armor-policy.sh update "${{ vars.ALLOWED_IP_ADDRESSES }}"
+      
       - name: Deploy Cloud Run
         run: |
           gcloud run deploy ${{ inputs.app_name }} \
@@ -76,4 +83,66 @@ jobs:
           --memory=512Mi \
           --quiet \
           --port ${{ env.PORT }} \
+          --ingress=internal-and-cloud-load-balancing \
           --set-env-vars=PROJECT_ID="${{ secrets.GCP_PROJECT_ID }}",CLOUD_LOGGING="${{ env.CLOUD_LOGGING }}"
+      
+      - name: Setup Load Balancer
+        run: |
+          APP_SERVICE_NAME="${{ inputs.app_name }}"
+          NEG_NAME="${APP_SERVICE_NAME}-neg"
+          BACKEND_SERVICE_NAME="${APP_SERVICE_NAME}-backend"
+          URL_MAP_NAME="${APP_SERVICE_NAME}-url-map"
+          TARGET_PROXY_NAME="${APP_SERVICE_NAME}-proxy"
+          FORWARDING_RULE_NAME="${APP_SERVICE_NAME}-forwarding-rule"
+          
+          # Create Network Endpoint Group for Cloud Run
+          gcloud compute network-endpoint-groups create ${NEG_NAME} \
+            --region=${{ env.REGION }} \
+            --network-endpoint-type=serverless \
+            --cloud-run-service=${APP_SERVICE_NAME} \
+            --quiet || echo "NEG already exists"
+          
+          # Create Backend Service
+          gcloud compute backend-services create ${BACKEND_SERVICE_NAME} \
+            --global \
+            --load-balancing-scheme=EXTERNAL_MANAGED \
+            --protocol=HTTP \
+            --quiet || echo "Backend service already exists"
+          
+          # Add NEG to Backend Service
+          gcloud compute backend-services add-backend ${BACKEND_SERVICE_NAME} \
+            --global \
+            --network-endpoint-group=${NEG_NAME} \
+            --network-endpoint-group-region=${{ env.REGION }} \
+            --quiet || echo "Backend already added"
+          
+          # Attach Security Policy to Backend Service
+          gcloud compute backend-services update ${BACKEND_SERVICE_NAME} \
+            --global \
+            --security-policy=${{ env.SECURITY_POLICY }} \
+            --quiet
+          
+          # Create URL Map
+          gcloud compute url-maps create ${URL_MAP_NAME} \
+            --default-service=${BACKEND_SERVICE_NAME} \
+            --global \
+            --quiet || echo "URL map already exists"
+          
+          # Create HTTP Target Proxy
+          gcloud compute target-http-proxies create ${TARGET_PROXY_NAME} \
+            --url-map=${URL_MAP_NAME} \
+            --global \
+            --quiet || echo "Target proxy already exists"
+          
+          # Create Global Forwarding Rule
+          gcloud compute forwarding-rules create ${FORWARDING_RULE_NAME} \
+            --global \
+            --target-http-proxy=${TARGET_PROXY_NAME} \
+            --ports=80 \
+            --load-balancing-scheme=EXTERNAL_MANAGED \
+            --quiet || echo "Forwarding rule already exists"
+          
+          # Get Load Balancer IP
+          LB_IP=$(gcloud compute forwarding-rules describe ${FORWARDING_RULE_NAME} --global --format="value(IPAddress)")
+          echo "Load Balancer IP: ${LB_IP}"
+          echo "App URL: http://${LB_IP}"

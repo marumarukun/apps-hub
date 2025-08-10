@@ -85,10 +85,12 @@ gcloud services enable \
   run.googleapis.com \
   artifactregistry.googleapis.com \
   cloudbuild.googleapis.com \
-  iamcredentials.googleapis.com
+  iamcredentials.googleapis.com \
+  compute.googleapis.com \
+  certificatemanager.googleapis.com
 
 # 有効化確認
-gcloud services list --enabled --filter="name:run.googleapis.com OR name:artifactregistry.googleapis.com OR name:cloudbuild.googleapis.com OR name:iamcredentials.googleapis.com"
+gcloud services list --enabled --filter="name:run.googleapis.com OR name:artifactregistry.googleapis.com OR name:cloudbuild.googleapis.com OR name:iamcredentials.googleapis.com OR name:compute.googleapis.com OR name:certificatemanager.googleapis.com"
 ```
 
 ## 手順4: Artifact Registryリポジトリの作成
@@ -108,7 +110,29 @@ gcloud artifacts repositories create my-app-images \
 gcloud artifacts repositories list
 ```
 
-## 手順5: Workload Identity の設定
+## 手順5: Cloud Armor セキュリティポリシーの作成
+
+### なぜこの手順が必要なのか
+IP制限機能で使用するCloud Armorセキュリティポリシーを作成します。このポリシーは全アプリで共通使用され、許可するIPアドレスのみアクセスを許可します。
+
+### 具体的な手順
+```bash
+# Cloud Armorセキュリティポリシーを作成
+gcloud compute security-policies create apps-hub-ip-policy \
+    --description="IP restriction policy for Apps Hub applications"
+
+# デフォルトルールを拒否に変更（既存のデフォルトルールを更新）
+gcloud compute security-policies rules update 2147483647 \
+    --security-policy apps-hub-ip-policy \
+    --action "deny-403"
+
+# 作成確認
+gcloud compute security-policies describe apps-hub-ip-policy
+```
+
+**注意:** 許可IPアドレスのルールは、GitHub Actionsワークフローで自動設定されるため、ここでは設定しません。
+
+## 手順6: Workload Identity の設定
 
 ### なぜこの手順が必要なのか
 GitHub ActionsからGoogle Cloudにアクセスするための安全な認証方法です。モノリポでは複数のワークフローが同じ認証設定を使用します。
@@ -156,6 +180,15 @@ gcloud projects add-iam-policy-binding $PROJECT_ID \
     --member="serviceAccount:github-actions@$PROJECT_ID.iam.gserviceaccount.com" \
     --role="roles/run.developer"
 
+# IP制限機能用の権限追加
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+    --member="serviceAccount:github-actions@$PROJECT_ID.iam.gserviceaccount.com" \
+    --role="roles/compute.admin"
+
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+    --member="serviceAccount:github-actions@$PROJECT_ID.iam.gserviceaccount.com" \
+    --role="roles/compute.securityAdmin"
+
 # GitHubからサービスアカウントを使用する権限を付与
 gcloud iam service-accounts add-iam-policy-binding \
     --role roles/iam.workloadIdentityUser \
@@ -163,7 +196,7 @@ gcloud iam service-accounts add-iam-policy-binding \
     github-actions@$PROJECT_ID.iam.gserviceaccount.com
 ```
 
-## 手順6: GitHubリポジトリでの設定
+## 手順7: GitHubリポジトリでの設定
 
 ### GitHub Secretsの設定
 
@@ -185,8 +218,35 @@ echo "Project Number: $PROJECT_NUMBER"
 echo "GitHub Repo: $GITHUB_REPO"
 ```
 
+### GitHub Variablesの設定（IP制限機能用）
 
-## 手順7: デプロイテスト（streamlit-sample-app）
+IP制限機能を使用するため、以下のVariablesを設定：
+
+1. リポジトリの「Settings」→「Secrets and variables」→「Actions」
+2. 「Variables」タブを選択
+3. 「New repository variable」で以下を追加：
+
+**必要なVariables:**
+
+- `ALLOWED_IP_ADDRESSES`: 許可するIPアドレスリスト（カンマ区切り）
+
+**設定例:**
+```
+Variable name: ALLOWED_IP_ADDRESSES
+Value: 203.0.113.5,198.51.100.10,192.0.2.0/24
+```
+
+**IP形式について:**
+- **固定IP**: `203.0.113.5` (特定の1つのIPアドレス)
+- **CIDRブロック**: `192.0.2.0/24` (192.0.2.0～192.0.2.255の範囲)
+- **複数指定**: カンマで区切って複数指定可能
+
+**注意:**
+- IP変更後は次回デプロイ時に反映されます
+- IPアドレス形式が正しいことを確認してください
+
+
+## 手順8: デプロイテスト（streamlit-sample-app）
 
 ### なぜこの手順が必要なのか
 設定がすべて正しく行われているかを確認するため、既存のstreamlit-sample-appをデプロイしてテストします。
@@ -274,11 +334,13 @@ git push origin main
 echo "=== Project Info ===" && \
 gcloud config get-value project && \
 echo "=== Enabled APIs ===" && \
-gcloud services list --enabled --filter="name:run.googleapis.com OR name:artifactregistry.googleapis.com" --format="value(name)" && \
+gcloud services list --enabled --filter="name:run.googleapis.com OR name:artifactregistry.googleapis.com OR name:compute.googleapis.com" --format="value(name)" && \
 echo "=== Artifact Registry ===" && \
 gcloud artifacts repositories list --location=asia-northeast1 --format="value(name)" && \
 echo "=== Service Accounts ===" && \
-gcloud iam service-accounts list --filter="email:github-actions@*.iam.gserviceaccount.com" --format="value(email)"
+gcloud iam service-accounts list --filter="email:github-actions@*.iam.gserviceaccount.com" --format="value(email)" && \
+echo "=== Cloud Armor Policies ===" && \
+gcloud compute security-policies list --format="value(name)"
 ```
 
 ## 料金について
