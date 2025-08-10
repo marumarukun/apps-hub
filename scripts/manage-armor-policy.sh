@@ -50,34 +50,20 @@ update_ip_rules() {
     # Delete existing allow rules (priority 1000-1999 are reserved for IP allow rules)
     log_info "Removing existing IP allow rules..."
     
-    # List existing rules and delete IP allow rules
-    log_info "Checking for existing rules..."
-    all_rules=$(gcloud compute security-policies rules list \
-        --security-policy="${POLICY_NAME}" \
-        --format="table(priority,action,description)" 2>/dev/null || echo "")
-    log_info "All current rules:"
-    echo "${all_rules}"
+    # Simple approach: just try to delete known priority ranges
+    log_info "Attempting to delete any existing IP allow rules (priorities 1000-1999)..."
     
-    # Get all rules except default rule (priority 2147483647)
-    existing_rules=$(gcloud compute security-policies rules list \
-        --security-policy="${POLICY_NAME}" \
-        --format="csv[no-heading](priority)" 2>/dev/null | grep -v "2147483647" || echo "")
+    for priority in {1000..1010}; do
+        log_info "Attempting to delete rule with priority ${priority}..."
+        gcloud compute security-policies rules delete "${priority}" \
+            --security-policy="${POLICY_NAME}" \
+            --quiet 2>/dev/null && log_info "Deleted rule ${priority}" || log_info "Rule ${priority} not found (OK)"
+    done
     
-    if [[ -n "${existing_rules}" ]]; then
-        log_info "Found existing IP allow rules: ${existing_rules}"
-        for priority in ${existing_rules}; do
-            if [[ -n "${priority}" && "${priority}" != "" ]]; then
-                log_info "Deleting existing rule with priority ${priority}"
-                gcloud compute security-policies rules delete "${priority}" \
-                    --security-policy="${POLICY_NAME}" \
-                    --quiet || log_warn "Failed to delete rule ${priority}"
-            fi
-        done
-        # Wait a moment for deletions to propagate
-        sleep 5
-    else
-        log_info "No existing IP allow rules found"
-    fi
+    # Wait for deletions to complete
+    sleep 5
+    
+    log_info "Cleanup completed"
     
     # Add new IP allow rules
     log_info "Adding new IP allow rules..."
