@@ -56,14 +56,21 @@ update_ip_rules() {
         --format="value(priority)" \
         --filter="priority>=1000 AND priority<=1999" 2>/dev/null || echo "")
     
-    for priority in ${existing_rules}; do
-        if [[ -n "${priority}" ]]; then
-            log_info "Deleting existing rule with priority ${priority}"
-            gcloud compute security-policies rules delete "${priority}" \
-                --security-policy="${POLICY_NAME}" \
-                --quiet || log_warn "Failed to delete rule ${priority}"
-        fi
-    done
+    if [[ -n "${existing_rules}" ]]; then
+        log_info "Found existing IP allow rules: ${existing_rules}"
+        for priority in ${existing_rules}; do
+            if [[ -n "${priority}" && "${priority}" != "" ]]; then
+                log_info "Deleting existing rule with priority ${priority}"
+                gcloud compute security-policies rules delete "${priority}" \
+                    --security-policy="${POLICY_NAME}" \
+                    --quiet || log_warn "Failed to delete rule ${priority}"
+            fi
+        done
+        # Wait a moment for deletions to propagate
+        sleep 5
+    else
+        log_info "No existing IP allow rules found"
+    fi
     
     # Add new IP allow rules
     log_info "Adding new IP allow rules..."
