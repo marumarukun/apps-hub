@@ -155,3 +155,15 @@ Thumbs.db
 # Logs
 *.log
 logs/
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfplan.*
+.terraformrc
+terraform.rc
+
+# Keep Terraform lock file
+!.terraform.lock.hcl
