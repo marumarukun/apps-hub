@@ -51,10 +51,17 @@ update_ip_rules() {
     log_info "Removing existing IP allow rules..."
     
     # List existing rules and delete IP allow rules
+    log_info "Checking for existing rules..."
+    all_rules=$(gcloud compute security-policies rules list \
+        --security-policy="${POLICY_NAME}" \
+        --format="table(priority,action,description)" 2>/dev/null || echo "")
+    log_info "All current rules:"
+    echo "${all_rules}"
+    
+    # Get all rules except default rule (priority 2147483647)
     existing_rules=$(gcloud compute security-policies rules list \
         --security-policy="${POLICY_NAME}" \
-        --format="value(priority)" \
-        --filter="priority>=1000 AND priority<=1999" 2>/dev/null || echo "")
+        --format="csv[no-heading](priority)" 2>/dev/null | grep -v "2147483647" || echo "")
     
     if [[ -n "${existing_rules}" ]]; then
         log_info "Found existing IP allow rules: ${existing_rules}"
