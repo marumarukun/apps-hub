@@ -3,12 +3,12 @@
 
 output "load_balancer_ip" {
   description = "The external IP address of the Load Balancer"
-  value       = google_compute_global_forwarding_rule.app_forwarding_rule.ip_address
+  value       = google_compute_global_address.app_lb_ip.address
 }
 
 output "app_url" {
   description = "The HTTP URL to access the application"
-  value       = "http://${google_compute_global_forwarding_rule.app_forwarding_rule.ip_address}"
+  value       = "http://${google_compute_global_address.app_lb_ip.address}"
 }
 
 output "security_policy_name" {

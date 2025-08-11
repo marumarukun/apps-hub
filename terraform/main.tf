@@ -101,10 +101,16 @@ resource "google_compute_target_http_proxy" "app_target_proxy" {
   url_map = google_compute_url_map.app_url_map.id
 }
 
+# Static IP Address for Load Balancer
+resource "google_compute_global_address" "app_lb_ip" {
+  name = "${var.app_name}-lb-ip"
+}
+
 # Global Forwarding Rule
 resource "google_compute_global_forwarding_rule" "app_forwarding_rule" {
   name                  = "${var.app_name}-forwarding-rule"
   target                = google_compute_target_http_proxy.app_target_proxy.id
   port_range           = "80"
   load_balancing_scheme = "EXTERNAL_MANAGED"
+  ip_address           = google_compute_global_address.app_lb_ip.address
 }
