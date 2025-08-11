@@ -7,7 +7,7 @@ from src.utils.logger import logger
 
 if __name__ == "__main__":
     st.set_page_config(page_title="Sample App")
-    st.title("Sample App")
+    st.title("Streamlit Sample App")
     selected_food = st.radio("Which food do you like?", ["Sushi", "Ramen"])
 
     if st.button("Submit"):
