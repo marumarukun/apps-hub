@@ -110,25 +110,24 @@ gcloud artifacts repositories create my-app-images \
 gcloud artifacts repositories list
 ```
 
-## 手順5: Terraform初期化
+## 手順5: Terraform State用GCSバケット作成
 
 ### なぜこの手順が必要なのか
-IP制限機能はTerraformで管理されます。初回のみTerraformの初期化を実行する必要があります。
+新しいアーキテクチャでは、Terraformの状態をGoogle Cloud Storageに保存して永続化します。これにより、GitHub Actions実行間で状態を維持し、リソースの重複作成エラーを防ぎます。
 
 ### 具体的な手順
 ```bash
-# Terraformディレクトリに移動
-cd terraform
+# Terraform状態管理用のGCSバケットを作成
+gsutil mb gs://$PROJECT_ID-terraform-state
 
-# Terraform初期化
-terraform init
+# バケットのバージョニングを有効化（状態の履歴管理）
+gsutil versioning set on gs://$PROJECT_ID-terraform-state
 
-# 設定ファイル確認
-ls -la
-# main.tf, variables.tf, terraform.tfvars, outputs.tf が存在することを確認
+# バケット作成確認
+gsutil ls gs://$PROJECT_ID-terraform-state
 ```
 
-**注意:** Cloud ArmorとLoad Balancerリソースは、GitHub Actionsワークフローで自動作成されるため、手動作成は不要です。
+**注意:** TerraformリソースはGitHub Actionsワークフローで自動管理されるため、手動初期化は不要です。
 
 ## 手順6: Workload Identity の設定
 
@@ -187,6 +186,11 @@ gcloud projects add-iam-policy-binding $PROJECT_ID \
     --member="serviceAccount:github-actions@$PROJECT_ID.iam.gserviceaccount.com" \
     --role="roles/compute.securityAdmin"
 
+# Terraform State管理用の権限追加
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+    --member="serviceAccount:github-actions@$PROJECT_ID.iam.gserviceaccount.com" \
+    --role="roles/storage.admin"
+
 # GitHubからサービスアカウントを使用する権限を付与
 gcloud iam service-accounts add-iam-policy-binding \
     --role roles/iam.workloadIdentityUser \
@@ -216,16 +220,16 @@ echo "Project Number: $PROJECT_NUMBER"
 echo "GitHub Repo: $GITHUB_REPO"
 ```
 
-### IP制限の設定（Terraform管理）
+### IP制限の設定（新しい二階層アーキテクチャ）
 
-IP制限機能はTerraformで管理されます。IPアドレスの変更は`terraform/terraform.tfvars`ファイルを編集することで行います。
+新しいアーキテクチャでは、IP制限は専用のワークフローで一括管理されます。
 
 **IP変更手順:**
 
-1. **terraform.tfvarsファイルを編集:**
+1. **共有インフラ設定ファイルを編集:**
 ```bash
 # ファイルを開いて編集
-vim terraform/terraform.tfvars
+vim terraform/shared/terraform.tfvars
 
 # または、GitHubのWeb UIから編集可能
 ```
@@ -234,21 +238,21 @@ vim terraform/terraform.tfvars
 ```hcl
 allowed_ip_addresses = [
   "160.249.3.131",        # あなたの現在のIP
-  "192.168.1.100",        # 追加するIP
+  "160.249.16.211",       # 追加するIP
   "203.0.113.0/24"        # CIDR形式も可能
 ]
 ```
 
 3. **変更をコミット:**
 ```bash
-git add terraform/terraform.tfvars
+git add terraform/shared/terraform.tfvars
 git commit -m "Update allowed IP addresses"
 git push origin main
 ```
 
-4. **次回デプロイ時に自動反映**
-   - GitHub ActionsでアプリをデプロイするとTerraformが実行される
-   - 変更されたIPアドレス設定が自動的に適用される
+4. **インフラワークフローを実行:**
+   - GitHub Actions → "Update Shared Infrastructure" → Run workflow
+   - **これだけで全アプリに即座に反映！**
 
 **IP形式について:**
 - **固定IP**: `"203.0.113.5"` (特定の1つのIPアドレス)
@@ -261,24 +265,32 @@ git push origin main
 - ✅ 複数人での管理が安全
 
 
-## 手順8: デプロイテスト（streamlit-sample-app）
+## 手順8: デプロイテスト（新アーキテクチャ）
 
 ### なぜこの手順が必要なのか
-設定がすべて正しく行われているかを確認するため、既存のstreamlit-sample-appをデプロイしてテストします。
+新しい二階層アーキテクチャが正しく動作するかを確認するため、順序立てて初期セットアップとテストデプロイを行います。
 
-### 具体的な手順
+### 8.1 共有インフラのセットアップ
 1. 変更をコミット・プッシュ：
    ```bash
    git add .
-   git commit -m "Setup Apps Hub monorepo with GCP integration"
+   git commit -m "Setup Apps Hub with new two-tier architecture"
    git push origin main
    ```
 
 2. GitHubリポジトリの「Actions」タブ
-3. 「Deploy streamlit-sample-app to Cloud Run」ワークフローを選択
+3. **「Update Shared Infrastructure」ワークフローを選択**
 4. 「Run workflow」をクリック
-5. App nameを入力（例：`streamlit-sample-app`）
-6. 「Run workflow」をクリック
+5. 「Run workflow」をクリック（初回セットアップ）
+
+### 8.2 アプリのデプロイテスト
+共有インフラのセットアップが完了後：
+
+1. GitHubリポジトリの「Actions」タブ
+2. **「Deploy streamlit-sample-app to Cloud Run」ワークフローを選択**
+3. 「Run workflow」をクリック
+4. App nameを入力（例：`streamlit-sample-app`）
+5. 「Run workflow」をクリック
 
 ### 成功の確認
 
@@ -288,9 +300,9 @@ git push origin main
 2. URLが発行されてStreamlitアプリにアクセスできる
 3. ログが正常に表示される
 
-## 新しいアプリの作成とデプロイ
+## 新しいアプリの作成とデプロイ（新アーキテクチャ）
 
-セットアップが完了したら、新しいアプリを作成できます：
+セットアップが完了したら、新しいアプリを作成できます。**共有インフラは既に設定済みなので、アプリ作成のみで完了します**：
 
 ```bash
 # 1. テンプレートをコピー
@@ -311,8 +323,14 @@ cp .github/workflows/deploy-template.yml .github/workflows/my-new-app.yml
 git add .
 git commit -m "Add my-new-app"
 git push origin main
-# GitHub ActionsからワークフローをRun
+# GitHub ActionsからワークフローをRun（アプリ個別のワークフロー）
 ```
+
+### 新アーキテクチャのメリット
+✅ **IP制限は自動適用**: 共有セキュリティポリシーを自動参照  
+✅ **独立デプロイ**: 他のアプリに影響なし  
+✅ **静的IPアドレス**: 各アプリに固定IPが付与  
+✅ **状態管理**: 409エラーなし（永続化されたTerraform状態）
 
 ## トラブルシューティング
 
@@ -345,7 +363,7 @@ git push origin main
 ### 設定確認用ワンライナー
 
 ```bash
-# 全体設定確認スクリプト
+# 全体設定確認スクリプト（新アーキテクチャ対応）
 echo "=== Project Info ===" && \
 gcloud config get-value project && \
 echo "=== Enabled APIs ===" && \
@@ -354,8 +372,12 @@ echo "=== Artifact Registry ===" && \
 gcloud artifacts repositories list --location=asia-northeast1 --format="value(name)" && \
 echo "=== Service Accounts ===" && \
 gcloud iam service-accounts list --filter="email:github-actions@*.iam.gserviceaccount.com" --format="value(email)" && \
+echo "=== Terraform State Bucket ===" && \
+gsutil ls gs://$PROJECT_ID-terraform-state && \
 echo "=== Cloud Armor Policies ===" && \
-gcloud compute security-policies list --format="value(name)"
+gcloud compute security-policies list --format="value(name)" && \
+echo "=== Static IP Addresses ===" && \
+gcloud compute addresses list --global --format="table(name,address,status)"
 ```
 
 ## 料金について
@@ -373,11 +395,23 @@ gcloud compute security-policies list --format="value(name)"
 
 ## 次のステップ
 
-設定完了後、以下が利用可能になります：
+新しい二階層アーキテクチャで以下が利用可能になります：
 
-1. ✅ streamlit-sample-appのデプロイテスト
-2. ✅ 新しいアプリの作成（templates/python-appを使用）
-3. ✅ Streamlit、Gradio、Dashアプリのデプロイ
-4. ✅ 複数アプリの独立デプロイ管理
+### 🚀 初回セットアップ後の流れ
+1. ✅ **共有インフラのセットアップ**: `infrastructure.yml` ワークフロー実行
+2. ✅ **streamlit-sample-appのテストデプロイ**: 個別アプリワークフロー実行
+3. ✅ **IP制限の動作確認**: 設定したIPからのみアクセス可能か確認
 
-apps-hubモノリポでの開発をお楽しみください！
+### 🏗️ 日常的な開発・運用
+1. ✅ **新アプリ作成**: テンプレートから即座にデプロイ可能
+2. ✅ **IP制限変更**: `terraform/shared/terraform.tfvars` 編集 → `infrastructure.yml` 実行のみ
+3. ✅ **独立アプリ管理**: 各アプリの更新は他に影響なし
+4. ✅ **静的IP**: 各アプリに固定IPアドレス付与
+
+### 🎯 新アーキテクチャの恩恵
+- **運用コスト削減**: IP変更が1回のワークフロー実行のみ
+- **開発者体験向上**: 新アプリ作成が以前と同じ簡単さ
+- **信頼性向上**: Terraform状態永続化で409エラー解消
+- **セキュリティ強化**: 一元管理されたIP制限
+
+apps-hubモノリポでの効率的な開発・運用をお楽しみください！

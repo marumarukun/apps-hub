@@ -1,5 +1,4 @@
-# Terraform Variables for Apps Hub Infrastructure
-# These variables are used to customize the infrastructure deployment
+# Variables for Apps Hub Shared Infrastructure
 
 variable "project_id" {
   description = "The Google Cloud Project ID"
@@ -12,13 +11,8 @@ variable "region" {
   default     = "asia-northeast1"
 }
 
-variable "app_name" {
-  description = "The name of the application (Cloud Run service name)"
-  type        = string
-}
-
 variable "allowed_ip_addresses" {
-  description = "List of IP addresses/CIDR blocks allowed to access the application"
+  description = "List of IP addresses/CIDR blocks allowed to access all applications"
   type        = list(string)
   default     = []
   

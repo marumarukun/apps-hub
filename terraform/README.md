@@ -1,39 +1,48 @@
-# Apps Hub Terraform Infrastructure
+# Terraform Infrastructure for Apps Hub
 
-This directory contains Terraform configuration files for managing Apps Hub infrastructure, including Load Balancer and Cloud Armor IP restrictions.
+This directory contains Terraform configurations for managing Apps Hub infrastructure with a **two-level architecture**.
 
-## 📁 File Structure
+## 📁 Directory Structure
 
 ```
 terraform/
-├── main.tf              # Main Terraform resources (Cloud Armor + Load Balancer)
-├── variables.tf         # Variable definitions
-├── terraform.tfvars     # Configuration values (EDIT THIS FOR IP CHANGES)
-├── outputs.tf           # Output values
-└── README.md            # This file
+├── shared/                # Shared resources across all applications
+│   ├── main.tf           # Security Policy, IP restrictions
+│   ├── variables.tf      # Shared infrastructure variables
+│   ├── outputs.tf        # Shared infrastructure outputs
+│   └── terraform.tfvars  # IP address configuration (EDIT THIS)
+├── app-infrastructure/    # App-specific resources template
+│   ├── main.tf           # Load Balancer, NEG, Static IP per app
+│   ├── variables.tf      # App infrastructure variables
+│   └── outputs.tf        # App infrastructure outputs
+└── README.md             # This file
 ```
 
 ## 🔧 For Developers
 
-### Changing Allowed IP Addresses
+### 🎯 Changing IP Addresses (Most Common Task)
 
-1. **Edit `terraform.tfvars`:**
+1. **Edit `terraform/shared/terraform.tfvars`:**
 ```hcl
 allowed_ip_addresses = [
   "160.249.3.131",        # Your current IP
-  "192.168.1.100",        # Additional IP
+  "160.249.16.211",       # Additional IP
   "203.0.113.0/24"        # CIDR block
 ]
 ```
 
 2. **Commit changes:**
 ```bash
-git add terraform/terraform.tfvars
+git add terraform/shared/terraform.tfvars
 git commit -m "Update allowed IP addresses"
 git push origin main
 ```
 
-3. **Deploy any app** - Changes will be applied automatically
+3. **Run infrastructure workflow:**
+   - Go to GitHub Actions
+   - Select "Update Shared Infrastructure"
+   - Click "Run workflow"
+   - **Done!** All apps now use new IP restrictions
 
 ### IP Address Formats
 
@@ -41,47 +50,59 @@ git push origin main
 - **CIDR Block**: `"192.168.1.0/24"` (range: 192.168.1.0 - 192.168.1.255)
 - **IPv6**: `"2001:db8::/32"`
 
-## 🚫 What NOT to Edit
+## 🏗️ Architecture Overview
 
-- `main.tf` - Infrastructure resources (managed by infrastructure team)
-- `variables.tf` - Variable definitions (managed by infrastructure team)
-- `outputs.tf` - Output definitions (managed by infrastructure team)
+### Two-Level Infrastructure System
 
-## 🔍 Troubleshooting
+#### 1. **Shared Infrastructure** (`shared/`)
+- **Purpose**: Resources used by ALL applications
+- **Resources**: Security Policy with IP restrictions
+- **Workflow**: `infrastructure.yml` (run once for IP changes)
+- **State**: `gs://PROJECT_ID-terraform-state/apps-hub/shared/`
 
-### Check Current State
-```bash
-cd terraform
-terraform show
-```
+#### 2. **App Infrastructure** (`app-infrastructure/`)
+- **Purpose**: Resources specific to each individual application
+- **Resources**: Load Balancer, NEG, Static IP Address
+- **Workflow**: Each app's deployment workflow
+- **State**: `gs://PROJECT_ID-terraform-state/apps-hub/app/{app-name}/`
 
-### View Planned Changes
-```bash
-cd terraform
-terraform plan
-```
+### Benefits of This Design
 
-### Manual Apply (if needed)
-```bash
-cd terraform
-terraform apply
-```
+✅ **One-Click IP Updates**: Change IPs once, apply to all apps  
+✅ **Independent Deployments**: Apps don't interfere with each other  
+✅ **Persistent State**: No more 409 conflicts from lost Terraform state  
+✅ **Static IP Addresses**: No more ephemeral IP changes  
+✅ **Clear Separation**: Shared vs app-specific resources  
 
 ## 🎯 Managed Resources
 
-This Terraform configuration manages:
-
+### Shared Resources (`shared/`)
 - **Cloud Armor Security Policy** (`apps-hub-ip-policy`)
-- **Load Balancer Components:**
-  - Network Endpoint Group (NEG)
-  - Backend Service
-  - URL Map
-  - HTTP Target Proxy
-  - Global Forwarding Rule
+- **IP restriction rules**
 
-## 🔄 Automatic Management
+### Per-App Resources (`app-infrastructure/`)
+- **Static IP Address** (Load Balancer IP)
+- **Network Endpoint Group** (NEG)
+- **Backend Service** (references shared Security Policy)
+- **URL Map**
+- **HTTP Target Proxy**
+- **Global Forwarding Rule**
 
-- **GitHub Actions** automatically runs `terraform apply` during app deployment
-- **IP changes** in `terraform.tfvars` are applied on next deployment
-- **State management** is handled automatically
-- **Resource dependencies** are managed by Terraform
+## 🔄 Workflows
+
+### IP Address Changes
+1. Edit `terraform/shared/terraform.tfvars`
+2. Run `infrastructure.yml` workflow **once**
+3. All apps immediately use new IP restrictions
+
+### New App Deployment
+1. Create app from template
+2. Create app-specific workflow
+3. Run app's deployment workflow
+4. App automatically uses shared IP restrictions
+
+## 🚫 What NOT to Edit
+
+- Infrastructure `.tf` files (managed automatically)
+- Only edit `terraform/shared/terraform.tfvars` for IP changes
+- State files are managed automatically via GCS backend

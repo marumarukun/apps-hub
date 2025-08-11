@@ -94,27 +94,34 @@ jobs:
           --allow-unauthenticated \
           --set-env-vars=PROJECT_ID="${{ secrets.GCP_PROJECT_ID }}",CLOUD_LOGGING="${{ env.CLOUD_LOGGING }}"
       
-      - name: Setup Infrastructure with Terraform
-        working-directory: terraform
+      - name: Create Terraform State Bucket (if not exists)
         run: |
-          # Initialize Terraform
-          terraform init
+          TF_STATE_BUCKET="${{ secrets.GCP_PROJECT_ID }}-terraform-state"
+          # Check if bucket exists, create if not
+          if ! gsutil ls gs://$TF_STATE_BUCKET > /dev/null 2>&1; then
+            echo "Creating Terraform state bucket: gs://$TF_STATE_BUCKET"
+            gsutil mb gs://$TF_STATE_BUCKET
+            gsutil versioning set on gs://$TF_STATE_BUCKET
+            echo "Bucket created successfully"
+          else
+            echo "Terraform state bucket already exists: gs://$TF_STATE_BUCKET"
+          fi
           
-          # Create runtime terraform.tfvars
-          # First backup the original IP settings
-          cp terraform.tfvars terraform.tfvars.backup
+      - name: Setup App Infrastructure with Terraform
+        working-directory: terraform/app-infrastructure
+        run: |
+          TF_STATE_BUCKET="${{ secrets.GCP_PROJECT_ID }}-terraform-state"
           
-          # Extract IP addresses from original file
-          IP_CONFIG=$(grep -A 10 "allowed_ip_addresses" terraform.tfvars.backup | sed '/^$/q' || echo 'allowed_ip_addresses = ["160.249.3.131"]')
+          # Initialize Terraform with dynamic backend config for this app
+          terraform init \
+            -backend-config="bucket=$TF_STATE_BUCKET" \
+            -backend-config="prefix=apps-hub/app/${{ inputs.app_name }}"
           
-          # Create new terraform.tfvars with runtime values
+          # Create terraform.tfvars with runtime values
           cat > terraform.tfvars << EOF
           project_id = "${{ secrets.GCP_PROJECT_ID }}"
           app_name   = "${{ inputs.app_name }}"
           region     = "${{ env.REGION }}"
-          
-          # IP addresses from committed configuration
-          ${IP_CONFIG}
           EOF
           
           # Wait for Cloud Run to be ready
@@ -138,11 +145,13 @@ jobs:
           done
           
           # Plan and Apply Terraform
+          echo "=== Terraform Plan ==="
           terraform plan
+          echo "=== Applying Terraform Changes ==="
           terraform apply -auto-approve
           
           # Output results
-          echo "🎉 Deployment completed!"
+          echo "🎉 App Deployment completed!"
           echo "Load Balancer IP: $(terraform output -raw load_balancer_ip)"
           echo "App URL: $(terraform output -raw app_url)"
-          echo "Allowed IPs: $(terraform output -json allowed_ip_addresses)"
+          echo "Security Policy: $(terraform output -raw security_policy_attached)"

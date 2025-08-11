@@ -1,0 +1,94 @@
+# GitHub Actions Workflow for Apps Hub Shared Infrastructure
+# This manages resources shared across all applications (Security Policy, IP restrictions)
+
+name: Update Shared Infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      update_type:
+        description: 'Type of update (ip_restriction, security_policy)'
+        required: true
+        default: 'ip_restriction'
+        type: choice
+        options:
+        - ip_restriction
+        - security_policy
+
+env:
+  WORKLOAD_IDENTITY_PROVIDER: projects/${{ secrets.GCP_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/github-pool/providers/github
+  REGION: asia-northeast1
+  TF_STATE_BUCKET: ${{ secrets.GCP_PROJECT_ID }}-terraform-state
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  Update-Shared-Infrastructure:
+    runs-on: ubuntu-latest
+    env:
+      CLOUD_LOGGING: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        
+      - id: auth
+        name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: github-actions@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com
+          
+      - name: Setup Google Cloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+          
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.0
+          
+      - name: Create Terraform State Bucket (if not exists)
+        run: |
+          # Check if bucket exists, create if not
+          if ! gsutil ls gs://${{ env.TF_STATE_BUCKET }} > /dev/null 2>&1; then
+            echo "Creating Terraform state bucket: gs://${{ env.TF_STATE_BUCKET }}"
+            gsutil mb gs://${{ env.TF_STATE_BUCKET }}
+            gsutil versioning set on gs://${{ env.TF_STATE_BUCKET }}
+            echo "Bucket created successfully"
+          else
+            echo "Terraform state bucket already exists: gs://${{ env.TF_STATE_BUCKET }}"
+          fi
+          
+      - name: Update Shared Infrastructure with Terraform
+        working-directory: terraform/shared
+        run: |
+          # Initialize Terraform with dynamic backend config
+          terraform init -backend-config="bucket=${{ env.TF_STATE_BUCKET }}"
+          
+          # Create runtime terraform.tfvars with project_id
+          cp terraform.tfvars terraform.tfvars.backup
+          
+          # Add project_id to terraform.tfvars
+          cat terraform.tfvars.backup > terraform.tfvars
+          echo "" >> terraform.tfvars
+          echo "project_id = \"${{ secrets.GCP_PROJECT_ID }}\"" >> terraform.tfvars
+          echo "region     = \"${{ env.REGION }}\"" >> terraform.tfvars
+          
+          # Show what we're about to apply
+          echo "=== Terraform Plan ==="
+          terraform plan
+          
+          # Apply changes
+          echo "=== Applying Terraform Changes ==="
+          terraform apply -auto-approve
+          
+          # Output results
+          echo "🎉 Shared Infrastructure Update Complete!"
+          echo "Security Policy: $(terraform output -raw security_policy_name)"
+          echo "Allowed IPs: $(terraform output -json allowed_ip_addresses)"
+          
+          # Restore original terraform.tfvars
+          mv terraform.tfvars.backup terraform.tfvars

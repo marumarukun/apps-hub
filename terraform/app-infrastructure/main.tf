@@ -1,5 +1,5 @@
-# Apps Hub Terraform Configuration
-# This file manages Load Balancer and Cloud Armor resources for IP restriction
+# Apps Hub App-Specific Infrastructure
+# This manages infrastructure resources for individual applications
 
 terraform {
   required_version = ">= 1.0"
@@ -9,6 +9,12 @@ terraform {
       version = "~> 5.0"
     }
   }
+  
+  # Store app-specific Terraform state in Google Cloud Storage
+  backend "gcs" {
+    bucket = "PROJECT_ID-terraform-state"
+    prefix = "apps-hub/app/APP_NAME"
+  }
 }
 
 # Configure the Google Cloud Provider
@@ -17,41 +23,9 @@ provider "google" {
   region  = var.region
 }
 
-# Cloud Armor Security Policy for IP Restriction
-resource "google_compute_security_policy" "apps_hub_ip_policy" {
-  name        = "apps-hub-ip-policy"
-  description = "IP restriction policy for Apps Hub applications"
-
-  # Allow rules for specified IP addresses
-  dynamic "rule" {
-    for_each = var.allowed_ip_addresses
-    content {
-      action   = "allow"
-      priority = 1000 + rule.key
-      description = "Allow access from ${rule.value}"
-      
-      match {
-        config {
-          src_ip_ranges = [rule.value]
-        }
-        versioned_expr = "SRC_IPS_V1"
-      }
-    }
-  }
-
-  # Default deny rule
-  rule {
-    action   = "deny(403)"
-    priority = 2147483647
-    description = "Default deny rule"
-    
-    match {
-      config {
-        src_ip_ranges = ["*"]
-      }
-      versioned_expr = "SRC_IPS_V1"
-    }
-  }
+# Data source to get shared security policy
+data "google_compute_security_policy" "shared_ip_policy" {
+  name = "apps-hub-ip-policy"
 }
 
 # Data source to get Cloud Run service information
@@ -59,6 +33,11 @@ resource "google_compute_security_policy" "apps_hub_ip_policy" {
 data "google_cloud_run_service" "app" {
   name     = var.app_name
   location = var.region
+}
+
+# Static IP Address for Load Balancer
+resource "google_compute_global_address" "app_lb_ip" {
+  name = "${var.app_name}-lb-ip"
 }
 
 # Network Endpoint Group for Cloud Run
@@ -85,8 +64,8 @@ resource "google_compute_backend_service" "app_backend" {
     group = google_compute_region_network_endpoint_group.cloud_run_neg.id
   }
 
-  # Attach the security policy
-  security_policy = google_compute_security_policy.apps_hub_ip_policy.id
+  # Attach the shared security policy
+  security_policy = data.google_compute_security_policy.shared_ip_policy.id
 }
 
 # URL Map
@@ -99,11 +78,6 @@ resource "google_compute_url_map" "app_url_map" {
 resource "google_compute_target_http_proxy" "app_target_proxy" {
   name    = "${var.app_name}-proxy"
   url_map = google_compute_url_map.app_url_map.id
-}
-
-# Static IP Address for Load Balancer
-resource "google_compute_global_address" "app_lb_ip" {
-  name = "${var.app_name}-lb-ip"
 }
 
 # Global Forwarding Rule
