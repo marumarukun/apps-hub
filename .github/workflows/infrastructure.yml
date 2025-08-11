@@ -1,19 +1,10 @@
 # GitHub Actions Workflow for Apps Hub Shared Infrastructure
 # This manages resources shared across all applications (Security Policy, IP restrictions)
 
-name: Update Shared Infrastructure
+name: Update IP Restrictions
 
 on:
   workflow_dispatch:
-    inputs:
-      update_type:
-        description: 'Type of update (ip_restriction, security_policy)'
-        required: true
-        default: 'ip_restriction'
-        type: choice
-        options:
-        - ip_restriction
-        - security_policy
 
 env:
   WORKLOAD_IDENTITY_PROVIDER: projects/${{ secrets.GCP_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/github-pool/providers/github
@@ -25,7 +16,7 @@ permissions:
   contents: read
 
 jobs:
-  Update-Shared-Infrastructure:
+  Update-IP-Restrictions:
     runs-on: ubuntu-latest
     env:
       CLOUD_LOGGING: true
@@ -86,7 +77,7 @@ jobs:
           terraform apply -auto-approve
           
           # Output results
-          echo "🎉 Shared Infrastructure Update Complete!"
+          echo "🎉 IP Restrictions Update Complete!"
           echo "Security Policy: $(terraform output -raw security_policy_name)"
           echo "Allowed IPs: $(terraform output -json allowed_ip_addresses)"
           
