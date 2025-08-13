@@ -55,8 +55,6 @@ jobs:
   Deploy-App:
     needs: Build-and-Push-image
     runs-on: ubuntu-latest
-    env:
-      # Cloud logging removed - use standard StreamHandler
     steps:
       - name: Checkout
         uses: actions/checkout@v4
