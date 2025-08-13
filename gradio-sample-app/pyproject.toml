@@ -10,7 +10,7 @@ dependencies = [
     # "flask>=3.0.0",  # Default framework for template
     # Add your framework dependencies here:
     # "streamlit>=1.42.0",  # For Streamlit apps
-    "gradio>=5.0.0",      # For Gradio apps
+    "gradio>=4.0.0,<5.0.0",      # For Gradio apps
     # "dash>=2.18.0",       # For Dash apps
 ]
 
