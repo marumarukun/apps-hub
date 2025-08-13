@@ -21,6 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && \
     apt-get clean
 
 WORKDIR /workspace
+ENV PYTHONUNBUFFERED=1
 ENV PATH="/root/.local/bin/:$PATH"
 
 COPY --from=builder /root/.local/bin/uv /root/.local/bin/uv
