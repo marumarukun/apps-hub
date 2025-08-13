@@ -83,11 +83,10 @@ jobs:
           --region=${{ env.REGION }} \
           --platform managed \
           --min-instances=0 \
-          --max-instances=1 \
-          --no-cpu-throttling  \
-          --cpu=4 \
-          --concurrency=10 \
-          --memory=4Gi \
+          --max-instances=10 \
+          --cpu=2 \
+          --concurrency=80 \
+          --memory=2Gi \
           --timeout=900 \
           --quiet \
           --port ${{ env.PORT }} \
