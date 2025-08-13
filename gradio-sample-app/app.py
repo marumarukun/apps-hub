@@ -22,7 +22,14 @@ def greet(name):
 iface = gr.Interface(fn=greet, inputs="text", outputs="text", flagging_mode="never")
 if __name__ == "__main__":
     logger.info("Starting Gradio app")
-    iface.launch(server_name="0.0.0.0", server_port=8080)
+    iface.launch(
+        server_name="0.0.0.0", 
+        server_port=8080,
+        show_api=False,
+        show_error=True,
+        quiet=True,
+        debug=False
+    )
 
 # === DASH EXAMPLE ===
 # import dash
