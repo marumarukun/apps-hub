@@ -23,7 +23,7 @@ def setup_logger(name: str, level: int = logging.DEBUG, cloud_logging: bool = Fa
 
     if not logger.hasHandlers():
         if cloud_logging:
-            cloud_logging_client = CloudLoggingClient()
+            cloud_logging_client = CloudLoggingClient(project=settings.PROJECT_ID)
             handler = CloudLoggingHandler(cloud_logging_client, name=name)
         else:
             handler = logging.StreamHandler()
