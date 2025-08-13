@@ -92,7 +92,7 @@ jobs:
           --port ${{ env.PORT }} \
           --ingress=internal-and-cloud-load-balancing \
           --allow-unauthenticated \
-#          --set-env-vars=PROJECT_ID="${{ secrets.GCP_PROJECT_ID }}",CLOUD_LOGGING="${{ env.CLOUD_LOGGING }}"
+         --set-env-vars=PROJECT_ID="${{ secrets.GCP_PROJECT_ID }}",CLOUD_LOGGING="${{ env.CLOUD_LOGGING }}"
       
       - name: Create Terraform State Bucket (if not exists)
         run: |
