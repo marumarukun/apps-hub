@@ -1,0 +1,149 @@
+name: Deploy streamlit-sample-app-2 to Cloud Run
+
+on:
+  workflow_dispatch:
+    inputs:
+      app_name:
+        description: 'App name for Cloud Run service'
+        required: true
+        default: 'streamlit-sample-app-2'
+
+env:
+  IMAGE_NAME: asia-northeast1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/my-app-images/${{ inputs.app_name }}
+  WORKLOAD_IDENTITY_PROVIDER: projects/${{ secrets.GCP_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/github-pool/providers/github
+  REGION: asia-northeast1
+  PORT: 8080
+  APP_DIRECTORY: streamlit-sample-app-2
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  Build-and-Push-image:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - id: auth
+        name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: github-actions@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com
+      - name: Setup Google Cloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+      - name: Configure Docker
+        run: gcloud auth configure-docker asia-northeast1-docker.pkg.dev
+      - name: Build Docker image
+        run: |
+          cd ${{ env.APP_DIRECTORY }}
+          docker build --platform linux/amd64 -t ${{ env.IMAGE_NAME }}:latest -f Dockerfile .
+      - name: Push Docker image
+        run: docker push ${{ env.IMAGE_NAME }}:latest
+
+  Deploy-App:
+    needs: Build-and-Push-image
+    runs-on: ubuntu-latest
+    env:
+      CLOUD_LOGGING: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - id: auth
+        name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: github-actions@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com
+      - name: Setup Google Cloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.0
+      
+      - name: Deploy Cloud Run
+        run: |
+          gcloud run deploy ${{ inputs.app_name }} \
+          --image ${{ env.IMAGE_NAME }}:latest \
+          --region=${{ env.REGION }} \
+          --platform managed \
+          --min-instances=0 \
+          --max-instances=1 \
+          --no-cpu-throttling  \
+          --cpu=1 \
+          --concurrency=10 \
+          --memory=512Mi \
+          --quiet \
+          --port ${{ env.PORT }} \
+          --ingress=internal-and-cloud-load-balancing \
+          --allow-unauthenticated \
+          --set-env-vars=PROJECT_ID="${{ secrets.GCP_PROJECT_ID }}",CLOUD_LOGGING="${{ env.CLOUD_LOGGING }}"
+      
+      - name: Create Terraform State Bucket (if not exists)
+        run: |
+          TF_STATE_BUCKET="${{ secrets.GCP_PROJECT_ID }}-terraform-state"
+          # Check if bucket exists, create if not
+          if ! gsutil ls gs://$TF_STATE_BUCKET > /dev/null 2>&1; then
+            echo "Creating Terraform state bucket: gs://$TF_STATE_BUCKET"
+            gsutil mb gs://$TF_STATE_BUCKET
+            gsutil versioning set on gs://$TF_STATE_BUCKET
+            echo "Bucket created successfully"
+          else
+            echo "Terraform state bucket already exists: gs://$TF_STATE_BUCKET"
+          fi
+          
+      - name: Setup App Infrastructure with Terraform
+        working-directory: terraform/app-infrastructure
+        run: |
+          TF_STATE_BUCKET="${{ secrets.GCP_PROJECT_ID }}-terraform-state"
+          
+          # Initialize Terraform with dynamic backend config for this app
+          terraform init \
+            -backend-config="bucket=$TF_STATE_BUCKET" \
+            -backend-config="prefix=apps-hub/app/${{ inputs.app_name }}"
+          
+          # Create terraform.tfvars with runtime values
+          cat > terraform.tfvars << EOF
+          project_id = "${{ secrets.GCP_PROJECT_ID }}"
+          app_name   = "${{ inputs.app_name }}"
+          region     = "${{ env.REGION }}"
+          EOF
+          
+          # Wait for Cloud Run to be ready
+          echo "Waiting for Cloud Run service to be ready..."
+          for i in {1..12}; do
+            STATUS=$(gcloud run services describe ${{ inputs.app_name }} --region=${{ env.REGION }} --format="value(status.conditions[0].status)" 2>/dev/null || echo "Unknown")
+            echo "Attempt $i: Cloud Run status is $STATUS"
+            
+            if [ "$STATUS" = "True" ]; then
+              echo "Cloud Run service is ready!"
+              break
+            fi
+            
+            if [ $i -eq 12 ]; then
+              echo "Error: Cloud Run service not ready after 6 minutes"
+              exit 1
+            fi
+            
+            echo "Waiting 30 seconds before next check..."
+            sleep 30
+          done
+          
+          # Plan and Apply Terraform
+          echo "=== Terraform Plan ==="
+          terraform plan
+          echo "=== Applying Terraform Changes ==="
+          terraform apply -auto-approve
+          
+          # Output results
+          echo "🎉 App Deployment completed!"
+          echo "Load Balancer IP: $(terraform output -raw load_balancer_ip)"
+          echo "App URL: $(terraform output -raw app_url)"
+          echo "Security Policy: $(terraform output -raw security_policy_attached)"
