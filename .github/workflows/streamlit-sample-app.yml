@@ -48,7 +48,7 @@ jobs:
     needs: Build-and-Push-image
     runs-on: ubuntu-latest
     env:
-      CLOUD_LOGGING: true
+      # Cloud logging removed - use standard StreamHandler
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -76,15 +76,14 @@ jobs:
           --platform managed \
           --min-instances=0 \
           --max-instances=1 \
-          --no-cpu-throttling  \
           --cpu=1 \
-          --concurrency=10 \
-          --memory=512Mi \
+          --concurrency=80 \
+          --memory=2Gi \
+          --timeout=900 \
           --quiet \
           --port ${{ env.PORT }} \
           --ingress=internal-and-cloud-load-balancing \
-          --allow-unauthenticated \
-          --set-env-vars=PROJECT_ID="${{ secrets.GCP_PROJECT_ID }}",CLOUD_LOGGING="${{ env.CLOUD_LOGGING }}"
+          --allow-unauthenticated
       
       - name: Create Terraform State Bucket (if not exists)
         run: |

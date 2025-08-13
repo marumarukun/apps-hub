@@ -5,7 +5,6 @@ description = "Python app for CloudRun deployment"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "google-cloud-logging>=3.12.1",
     "pydantic-settings>=2.9.1",
     "flask>=3.0.0",  # Default framework for template
     # Add your framework dependencies here:
