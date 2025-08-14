@@ -1,0 +1,1 @@
+Gradioでwhidper(GPU)で音声認識するアプリ
