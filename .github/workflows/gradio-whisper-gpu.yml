@@ -85,7 +85,7 @@ jobs:
           --max-instances=1 \
           --cpu=4 `# GPUを使うためにCPUを4個に増やす`\
           --concurrency=80 \
-          --memory=20Gi `# GPUを使うためにメモリを20GBに増やす(最低16GBが必要)`\
+          --memory=16Gi `# GPUを使うためにメモリを16GBに増やす(最低16GBが必要)`\
           --timeout=900 \
           --quiet \
           --port ${{ env.PORT }} \
