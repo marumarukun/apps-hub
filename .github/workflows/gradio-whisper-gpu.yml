@@ -91,7 +91,8 @@ jobs:
           --port ${{ env.PORT }} \
           --ingress=internal-and-cloud-load-balancing \
           --allow-unauthenticated \
-          --gpu 1 `# GPUを使うためにGPUを1個指定`
+          --gpu 1 `# GPUを使うためにGPUを1個指定` \
+          --no-gpu-zonal-redundancy `# GPUのゾーン冗長を無効にする（有効にするには申請が必要）`
       
       - name: Create Terraform State Bucket (if not exists)
         run: |
