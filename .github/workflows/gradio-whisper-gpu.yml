@@ -83,18 +83,15 @@ jobs:
           --platform managed \
           --min-instances=0 \
           --max-instances=1 \
-          # GPUを使うためにCPUを4個に増やす
-          --cpu=4 \
+          --cpu=4 `# GPUを使うためにCPUを4個に増やす`\
           --concurrency=80 \
-          # GPUを使うためにメモリを20GBに増やす(最低16GBが必要)
-          --memory=20Gi \
+          --memory=20Gi `# GPUを使うためにメモリを20GBに増やす(最低16GBが必要)`\
           --timeout=900 \
           --quiet \
           --port ${{ env.PORT }} \
           --ingress=internal-and-cloud-load-balancing \
           --allow-unauthenticated \
-          # GPUを使うためにGPUを1個指定
-          --gpu 1
+          --gpu 1 `# GPUを使うためにGPUを1個指定`
       
       - name: Create Terraform State Bucket (if not exists)
         run: |
