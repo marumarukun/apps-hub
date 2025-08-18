@@ -253,37 +253,20 @@ jobs:
           # List and delete Docker images for this app
           echo "🔍 Checking for Docker images to delete..."
           
-          # Check if we have permission to delete images
-          echo "🔐 Checking permissions for Artifact Registry deletion..."
-          if gcloud artifacts repositories get-iam-policy my-app-images --location=asia-northeast1 > /dev/null 2>&1; then
-            # Get list of images for this app
-            IMAGES=$(gcloud artifacts docker images list asia-northeast1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/my-app-images/${{ inputs.app_name }} --format="value(IMAGE)" 2>/dev/null || echo "")
-            
-            if [ -z "$IMAGES" ]; then
-              echo "⚠️ No Docker images found for ${{ inputs.app_name }}"
-            else
-              echo "🗑️ Found Docker images. Attempting deletion..."
-              echo "$IMAGES" | while read -r image; do
-                if [ -n "$image" ]; then
-                  echo "Deleting image: $image"
-                  if gcloud artifacts docker images delete "$image" --quiet 2>/dev/null; then
-                    echo "✅ Successfully deleted: $image"
-                  else
-                    echo "⚠️ Failed to delete $image (insufficient permissions)"
-                    echo "💡 To enable Docker image deletion, run:"
-                    echo "   gcloud projects add-iam-policy-binding ${{ secrets.GCP_PROJECT_ID }} \\"
-                    echo "     --member=\"serviceAccount:github-actions@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com\" \\"
-                    echo "     --role=\"roles/artifactregistry.repoAdmin\""
-                  fi
-                fi
-              done
-              echo "✅ Docker images cleanup attempt completed!"
-            fi
+          # Get list of images for this app
+          IMAGES=$(gcloud artifacts docker images list asia-northeast1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/my-app-images/${{ inputs.app_name }} --format="value(IMAGE)" 2>/dev/null || echo "")
+          
+          if [ -z "$IMAGES" ]; then
+            echo "⚠️ No Docker images found for ${{ inputs.app_name }}"
           else
-            echo "⚠️ Insufficient permissions to access Artifact Registry"
-            echo "💡 Docker images will remain but won't affect functionality"
-            echo "🔧 To enable Docker image deletion, add the following IAM role:"
-            echo "   roles/artifactregistry.repoAdmin"
+            echo "🗑️ Found Docker images. Deleting..."
+            echo "$IMAGES" | while read -r image; do
+              if [ -n "$image" ]; then
+                echo "Deleting image: $image"
+                gcloud artifacts docker images delete "$image" --quiet || echo "⚠️ Failed to delete $image, but continuing..."
+              fi
+            done
+            echo "✅ Docker images cleanup completed!"
           fi
       
       - name: Clean up Terraform State (Optional)
