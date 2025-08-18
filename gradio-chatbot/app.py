@@ -172,27 +172,10 @@ def create_interface():
 if __name__ == "__main__":
     logger.info("Starting Gradio Chatbot")
     
-    # OpenAI APIキーの診断（デバッグ用）
-    logger.info(f"API Key exists: {bool(settings.OPENAI_API_KEY)}")
-    if settings.OPENAI_API_KEY:
-        logger.info(f"API Key prefix: {settings.OPENAI_API_KEY[:10]}...")
-        logger.info(f"API Key length: {len(settings.OPENAI_API_KEY)}")
-    else:
+    # OpenAI APIキーの確認
+    if not settings.OPENAI_API_KEY:
         logger.error("OPENAI_API_KEY is not set")
         raise ValueError("OPENAI_API_KEY environment variable is required")
-    
-    # OpenAI接続テスト
-    try:
-        logger.info("Testing OpenAI API connection...")
-        test_response = client.chat.completions.create(
-            model="gpt-5-mini",
-            messages=[{"role": "user", "content": "Hello"}],
-            max_completion_tokens=10
-        )
-        logger.info("OpenAI API connection test: SUCCESS")
-    except Exception as e:
-        logger.error(f"OpenAI API connection test failed: {str(e)}")
-        logger.error(f"Error type: {type(e).__name__}")
     
     # Gradioアプリの起動
     app = create_interface()
