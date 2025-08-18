@@ -146,10 +146,10 @@ OpenAI APIを使用するアプリ（gradio-chatbotなど）では、APIキー�
 ```bash
 # OpenAI APIキーをSecret Managerに保存
 # 以下のコマンドで YOUR_OPENAI_API_KEY_HERE を実際のAPIキーに置き換えて実行
-echo "YOUR_OPENAI_API_KEY_HERE" | gcloud secrets create openai-api-key --data-file=-
+echo -n "YOUR_OPENAI_API_KEY_HERE" | gcloud secrets create openai-api-key --data-file=-
 
 # または、ファイルから作成する場合：
-echo "YOUR_OPENAI_API_KEY_HERE" > openai-key.txt
+echo -n "YOUR_OPENAI_API_KEY_HERE" > openai-key.txt
 gcloud secrets create openai-api-key --data-file=openai-key.txt
 rm openai-key.txt  # セキュリティのため削除
 ```
@@ -173,13 +173,29 @@ gcloud secrets add-iam-policy-binding openai-api-key \
     --role="roles/secretmanager.secretAccessor"
 ```
 
-#### 6.4 シークレット設定の確認
+#### 6.4 シークレットの更新（APIキーを変更する場合）
+```bash
+# 既存のシークレットを新しいAPIキーで更新
+echo -n "YOUR_NEW_OPENAI_API_KEY_HERE" | gcloud secrets versions add openai-api-key --data-file=-
+
+# または、ファイルから更新する場合：
+echo -n "YOUR_NEW_OPENAI_API_KEY_HERE" > openai-key.txt
+gcloud secrets versions add openai-api-key --data-file=openai-key.txt
+rm openai-key.txt  # セキュリティのため削除
+
+# 更新後は自動的に最新バージョンが使用されます
+```
+
+#### 6.5 シークレット設定の確認
 ```bash
 # シークレットの存在確認
 gcloud secrets list --filter="name:openai-api-key"
 
 # シークレットのバージョン確認
 gcloud secrets versions list openai-api-key
+
+# 最新シークレットの内容確認
+gcloud secrets versions access latest --secret="openai-api-key"
 
 # 権限確認
 gcloud secrets get-iam-policy openai-api-key
