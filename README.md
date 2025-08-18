@@ -127,12 +127,14 @@ class Settings(BaseSettings):
 
 #### 3.3 GitHub Actions ワークフローにシークレットを追加
 
-デプロイ用ワークフローファイルで `--update-secrets` オプションを追加:
+デプロイ用ワークフローファイルの「Deploy Cloud Run」ステップで `--update-secrets` オプションを追加:
 
 ```yaml
-- name: Deploy Cloud Run with Secret Manager
+- name: Deploy Cloud Run
   run: |
     gcloud run deploy ${{ inputs.app_name }} \
+    --image ${{ env.IMAGE_NAME }}:latest \
+    --region=${{ env.REGION }} \
     # ... 他の設定 ...
     --update-secrets YOUR_API_KEY=your-api-key-name:latest
     
@@ -171,7 +173,13 @@ cp .github/workflows/deploy-template.yml .github/workflows/your-app-name.yml
 
 1. **初回セットアップ**: `infrastructure.yml` ワークフローを実行して共有Security Policyを作成
 2. 変更をコミット・プッシュ
-3. GitHub Actions から該当アプリのワークフローを手動実行
+3. **GitHub Actionsからデプロイを実行**:
+   - リポジトリの「Actions」タブに移動
+   - 該当アプリのワークフロー（例：「Deploy/Delete your-app-name to/from Cloud Run」）を選択
+   - 「Run workflow」をクリック
+   - **Action**: 「deploy」を選択
+   - **App name**: アプリ名を確認
+   - 「Run workflow」をクリックして実行
 4. Cloud Run にアプリがデプロイされる
 
 ## IP制限管理
@@ -235,6 +243,49 @@ cp .github/workflows/deploy-template.yml .github/workflows/your-app-name.yml
 1. **リージョン変更**: ワークフローで `asia-southeast1` を指定
 2. **リソース設定**: CPU、メモリ、GPU要件を定義
 3. **依存関係**: GPU対応ライブラリを `pyproject.toml` に追加
+
+## アプリケーション削除
+
+### アプリを削除したい場合の手順
+
+各アプリには削除機能が組み込まれており、簡単に完全削除できます。
+
+#### 削除手順
+
+1. **GitHub Actionsから削除を実行**:
+   - リポジトリの「Actions」タブに移動
+   - 削除したいアプリのワークフロー（例：「Deploy/Delete streamlit-sample-app to/from Cloud Run」）を選択
+   - 「Run workflow」をクリック
+   - **Action**: 「delete」を選択
+   - **App name**: 削除するアプリ名を確認
+   - 「Run workflow」をクリックして実行
+
+#### 削除される内容
+
+削除処理では以下のリソースが自動的に削除されます：
+
+✅ **Load Balancer** - 静的IPアドレス、URL Map、Backend Service  
+✅ **Network Endpoint Group** - Cloud Run サービスとの接続  
+✅ **Cloud Run Service** - アプリケーション本体  
+✅ **Docker Images** - Artifact Registry内のコンテナイメージ  
+✅ **Terraform State** - インフラ状態管理ファイル  
+
+#### 再デプロイ
+
+削除後、同じワークフローで簡単に再デプロイできます：
+
+1. 同じワークフローで「Run workflow」をクリック
+2. **Action**: 「deploy」を選択
+3. 「Run workflow」をクリック
+
+これで `削除 → デプロイ → 削除` のサイクルを繰り返し実行できます。
+
+#### 削除時の注意点
+
+- **完全削除**: すべてのリソースが削除されるため、課金も停止されます
+- **データ消失**: アプリに保存されたデータは復旧できません
+- **IP制限は継続**: 共有Security PolicyのIP制限設定は影響を受けません
+- **他アプリへの影響なし**: 他のアプリの動作には影響しません
 
 ## 開発時のコマンド
 
