@@ -87,10 +87,11 @@ gcloud services enable \
   cloudbuild.googleapis.com \
   iamcredentials.googleapis.com \
   compute.googleapis.com \
-  certificatemanager.googleapis.com
+  certificatemanager.googleapis.com \
+  secretmanager.googleapis.com
 
 # 有効化確認
-gcloud services list --enabled --filter="name:run.googleapis.com OR name:artifactregistry.googleapis.com OR name:cloudbuild.googleapis.com OR name:iamcredentials.googleapis.com OR name:compute.googleapis.com OR name:certificatemanager.googleapis.com"
+gcloud services list --enabled --filter="name:run.googleapis.com OR name:artifactregistry.googleapis.com OR name:cloudbuild.googleapis.com OR name:iamcredentials.googleapis.com OR name:compute.googleapis.com OR name:certificatemanager.googleapis.com OR name:secretmanager.googleapis.com"
 ```
 
 ## 手順4: Artifact Registryリポジトリの作成
@@ -129,12 +130,72 @@ gsutil ls gs://$PROJECT_ID-terraform-state
 
 **注意:** TerraformリソースはGitHub Actionsワークフローで自動管理されるため、手動初期化は不要です。
 
-## 手順6: Workload Identity の設定
+## 手順6: Secret Manager でのOpenAI APIキー設定
+
+### なぜこの手順が必要なのか
+OpenAI APIを使用するアプリ（gradio-chatbotなど）では、APIキーを安全に管理する必要があります。Secret Managerを使用することで、APIキーをコードにハードコーディングすることなく、安全に管理できます。
+
+### 具体的な手順
+
+#### 6.1 OpenAI APIキーの準備
+1. [OpenAI Platform](https://platform.openai.com/) にログイン
+2. 「API keys」セクションでAPIキーを作成
+3. 作成されたAPIキーをコピー（再表示できないため注意）
+
+#### 6.2 Secret Managerでのシークレット作成
+```bash
+# OpenAI APIキーをSecret Managerに保存
+# 以下のコマンドで YOUR_OPENAI_API_KEY_HERE を実際のAPIキーに置き換えて実行
+echo "YOUR_OPENAI_API_KEY_HERE" | gcloud secrets create openai-api-key --data-file=-
+
+# または、ファイルから作成する場合：
+echo "YOUR_OPENAI_API_KEY_HERE" > openai-key.txt
+gcloud secrets create openai-api-key --data-file=openai-key.txt
+rm openai-key.txt  # セキュリティのため削除
+```
+
+#### 6.3 Cloud Run サービスアカウントへの権限付与
+OpenAI APIキーを使用するアプリ（gradio-chatbot）のCloud Runサービスに、Secret Managerからシークレットを読み取る権限を付与します。
+
+```bash
+# プロジェクトのデフォルトCompute Engine サービスアカウントを取得
+COMPUTE_SA=$(gcloud projects describe $PROJECT_ID --format="value(projectNumber)")-compute@developer.gserviceaccount.com
+
+# Secret Manager Secret Accessor権限を付与
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+    --member="serviceAccount:$COMPUTE_SA" \
+    --role="roles/secretmanager.secretAccessor"
+
+# 設定確認
+echo "Service Account: $COMPUTE_SA"
+gcloud secrets add-iam-policy-binding openai-api-key \
+    --member="serviceAccount:$COMPUTE_SA" \
+    --role="roles/secretmanager.secretAccessor"
+```
+
+#### 6.4 シークレット設定の確認
+```bash
+# シークレットの存在確認
+gcloud secrets list --filter="name:openai-api-key"
+
+# シークレットのバージョン確認
+gcloud secrets versions list openai-api-key
+
+# 権限確認
+gcloud secrets get-iam-policy openai-api-key
+```
+
+### 重要な注意点
+- **APIキーの管理**: OpenAI APIキーは使用量に応じて課金されるため、適切に管理してください
+- **権限の最小化**: Secret Managerの権限は必要最小限のサービスアカウントにのみ付与してください
+- **定期的なローテーション**: セキュリティ向上のため、定期的にAPIキーを更新することを推奨します
+
+## 手順7: Workload Identity の設定
 
 ### なぜこの手順が必要なのか
 GitHub ActionsからGoogle Cloudにアクセスするための安全な認証方法です。モノリポでは複数のワークフローが同じ認証設定を使用します。
 
-### 5.1 Workload Identity Poolの作成
+### 7.1 Workload Identity Poolの作成
 ```bash
 gcloud iam workload-identity-pools create "github-pool" \
     --project="$PROJECT_ID" \
@@ -142,7 +203,7 @@ gcloud iam workload-identity-pools create "github-pool" \
     --display-name="GitHub Actions Pool for Apps Hub"
 ```
 
-### 5.2 プロバイダーの作成
+### 7.2 プロバイダーの作成
 ```bash
 gcloud iam workload-identity-pools providers create-oidc "github" \
     --project="$PROJECT_ID" \
@@ -154,7 +215,7 @@ gcloud iam workload-identity-pools providers create-oidc "github" \
     --issuer-uri="https://token.actions.githubusercontent.com"
 ```
 
-### 5.3 サービスアカウントの作成と権限設定
+### 7.3 サービスアカウントの作成と権限設定
 ```bash
 # サービスアカウント作成
 gcloud iam service-accounts create github-actions \
@@ -198,7 +259,7 @@ gcloud iam service-accounts add-iam-policy-binding \
     github-actions@$PROJECT_ID.iam.gserviceaccount.com
 ```
 
-## 手順7: GitHubリポジトリでの設定
+## 手順8: GitHubリポジトリでの設定
 
 ### GitHub Secretsの設定
 
@@ -265,12 +326,12 @@ git push origin main
 - ✅ 複数人での管理が安全
 
 
-## 手順8: デプロイテスト（新アーキテクチャ）
+## 手順9: デプロイテスト（新アーキテクチャ）
 
 ### なぜこの手順が必要なのか
 新しい二階層アーキテクチャが正しく動作するかを確認するため、順序立てて初期セットアップとテストデプロイを行います。
 
-### 8.1 共有インフラのセットアップ
+### 9.1 共有インフラのセットアップ
 1. 変更をコミット・プッシュ：
    ```bash
    git add .
@@ -283,14 +344,20 @@ git push origin main
 4. 「Run workflow」をクリック
 5. 「Run workflow」をクリック（初回セットアップ）
 
-### 8.2 アプリのデプロイテスト
+### 9.2 アプリのデプロイテスト
 共有インフラのセットアップが完了後：
 
 1. GitHubリポジトリの「Actions」タブ
-2. **「Deploy streamlit-sample-app to Cloud Run」ワークフローを選択**
+2. **テスト用アプリワークフローを選択**（例：「Deploy streamlit-sample-app to Cloud Run」）
 3. 「Run workflow」をクリック
 4. App nameを入力（例：`streamlit-sample-app`）
 5. 「Run workflow」をクリック
+
+**gradio-chatbotアプリのテスト：**
+OpenAI APIキーを設定済みの場合は、以下の手順でgradio-chatbotもテストできます：
+1. 「Deploy gradio-chatbot to Cloud Run」ワークフローを選択
+2. App nameに`gradio-chatbot`を入力
+3. 「Run workflow」をクリック
 
 ### 成功の確認
 
@@ -367,11 +434,13 @@ git push origin main
 echo "=== Project Info ===" && \
 gcloud config get-value project && \
 echo "=== Enabled APIs ===" && \
-gcloud services list --enabled --filter="name:run.googleapis.com OR name:artifactregistry.googleapis.com OR name:compute.googleapis.com" --format="value(name)" && \
+gcloud services list --enabled --filter="name:run.googleapis.com OR name:artifactregistry.googleapis.com OR name:compute.googleapis.com OR name:secretmanager.googleapis.com" --format="value(name)" && \
 echo "=== Artifact Registry ===" && \
 gcloud artifacts repositories list --location=asia-northeast1 --format="value(name)" && \
 echo "=== Service Accounts ===" && \
 gcloud iam service-accounts list --filter="email:github-actions@*.iam.gserviceaccount.com" --format="value(email)" && \
+echo "=== Secret Manager ===" && \
+gcloud secrets list --format="value(name)" && \
 echo "=== Terraform State Bucket ===" && \
 gsutil ls gs://$PROJECT_ID-terraform-state && \
 echo "=== Cloud Armor Policies ===" && \
