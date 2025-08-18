@@ -11,6 +11,16 @@
 # - CPU を 4 に増加（GPU使用時の最小値）
 # - メモリを 16Gi に増加（GPU使用時の最小値）
 # - gcloud run deploy に --gpu 1 と --no-gpu-zonal-redundancy フラグを追加
+#
+# 外部APIキー（OpenAI、Claude等）を使用する場合は以下を変更:
+# 1. Secret ManagerにAPIキーを事前登録
+#    echo -n "your_api_key" | gcloud secrets create your-api-key-name --data-file=-
+# 2. src/core/config.py に環境変数を追加
+#    YOUR_API_KEY: str = ""
+# 3. gcloud run deploy に --update-secrets オプションを追加
+#    --update-secrets YOUR_API_KEY=your-api-key-name:latest
+# 4. 複数のAPIキーを使用する場合はカンマ区切り
+#    --update-secrets OPENAI_API_KEY=openai-api-key:latest,CLAUDE_API_KEY=claude-api-key:latest
 
 name: Deploy {APP_NAME} to Cloud Run
 

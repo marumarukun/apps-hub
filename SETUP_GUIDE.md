@@ -130,32 +130,47 @@ gsutil ls gs://$PROJECT_ID-terraform-state
 
 **注意:** TerraformリソースはGitHub Actionsワークフローで自動管理されるため、手動初期化は不要です。
 
-## 手順6: Secret Manager でのOpenAI APIキー設定
+## 手順6: Secret Manager でのAPIキー・機密情報の設定
 
 ### なぜこの手順が必要なのか
-OpenAI APIを使用するアプリ（gradio-chatbotなど）では、APIキーを安全に管理する必要があります。Secret Managerを使用することで、APIキーをコードにハードコーディングすることなく、安全に管理できます。
+外部APIを使用するアプリ（OpenAI、Anthropic、Google AI等）では、APIキーやデータベースパスワードなどの機密情報を安全に管理する必要があります。Secret Managerを使用することで、これらの情報をコードにハードコーディングすることなく、安全に管理できます。
 
 ### 具体的な手順
 
-#### 6.1 OpenAI APIキーの準備
+#### 6.1 APIキー・機密情報の準備
+外部サービスのAPIキーやその他の機密情報を準備します。
+
+**OpenAI APIキーの場合（例）：**
 1. [OpenAI Platform](https://platform.openai.com/) にログイン
 2. 「API keys」セクションでAPIキーを作成
 3. 作成されたAPIキーをコピー（再表示できないため注意）
 
+**その他のAPIキー例：**
+- Anthropic Claude API
+- Google AI API
+- データベース接続文字列
+- 外部サービスのトークン
+
 #### 6.2 Secret Managerでのシークレット作成
 ```bash
-# OpenAI APIキーをSecret Managerに保存
-# 以下のコマンドで YOUR_OPENAI_API_KEY_HERE を実際のAPIキーに置き換えて実行
-echo -n "YOUR_OPENAI_API_KEY_HERE" | gcloud secrets create openai-api-key --data-file=-
+# 基本的なシークレット作成コマンド
+echo -n "YOUR_SECRET_VALUE_HERE" | gcloud secrets create SECRET_NAME --data-file=-
 
-# または、ファイルから作成する場合：
-echo -n "YOUR_OPENAI_API_KEY_HERE" > openai-key.txt
-gcloud secrets create openai-api-key --data-file=openai-key.txt
-rm openai-key.txt  # セキュリティのため削除
+# OpenAI APIキーの例：
+echo -n "sk-..." | gcloud secrets create openai-api-key --data-file=-
+
+# その他のAPIキーの例：
+echo -n "claude_api_key_value" | gcloud secrets create claude-api-key --data-file=-
+echo -n "database_connection_string" | gcloud secrets create db-connection --data-file=-
+
+# ファイルから作成する場合：
+echo -n "YOUR_SECRET_VALUE" > secret.txt
+gcloud secrets create SECRET_NAME --data-file=secret.txt
+rm secret.txt  # セキュリティのため削除
 ```
 
 #### 6.3 Cloud Run サービスアカウントへの権限付与
-OpenAI APIキーを使用するアプリ（gradio-chatbot）のCloud Runサービスに、Secret Managerからシークレットを読み取る権限を付与します。
+Secret Managerに保存した機密情報を使用するアプリのCloud Runサービスに、シークレットを読み取る権限を付与します。
 
 ```bash
 # プロジェクトのデフォルトCompute Engine サービスアカウントを取得
@@ -168,43 +183,54 @@ gcloud projects add-iam-policy-binding $PROJECT_ID \
 
 # 設定確認
 echo "Service Account: $COMPUTE_SA"
+
+# 特定のシークレットに対する権限付与（例：OpenAI APIキー）
 gcloud secrets add-iam-policy-binding openai-api-key \
     --member="serviceAccount:$COMPUTE_SA" \
     --role="roles/secretmanager.secretAccessor"
+
+# その他のシークレットの例：
+# gcloud secrets add-iam-policy-binding claude-api-key \
+#     --member="serviceAccount:$COMPUTE_SA" \
+#     --role="roles/secretmanager.secretAccessor"
 ```
 
-#### 6.4 シークレットの更新（APIキーを変更する場合）
+#### 6.4 シークレットの更新（機密情報を変更する場合）
 ```bash
-# 既存のシークレットを新しいAPIキーで更新
-echo -n "YOUR_NEW_OPENAI_API_KEY_HERE" | gcloud secrets versions add openai-api-key --data-file=-
+# 基本的なシークレット更新コマンド
+echo -n "YOUR_NEW_SECRET_VALUE" | gcloud secrets versions add SECRET_NAME --data-file=-
 
-# または、ファイルから更新する場合：
-echo -n "YOUR_NEW_OPENAI_API_KEY_HERE" > openai-key.txt
-gcloud secrets versions add openai-api-key --data-file=openai-key.txt
-rm openai-key.txt  # セキュリティのため削除
+# OpenAI APIキーの更新例：
+echo -n "sk-new-api-key..." | gcloud secrets versions add openai-api-key --data-file=-
+
+# その他のシークレット更新例：
+echo -n "new_claude_api_key" | gcloud secrets versions add claude-api-key --data-file=-
+
+# ファイルから更新する場合：
+echo -n "YOUR_NEW_SECRET_VALUE" > secret.txt
+gcloud secrets versions add SECRET_NAME --data-file=secret.txt
+rm secret.txt  # セキュリティのため削除
 
 # 更新後は自動的に最新バージョンが使用されます
 ```
 
 #### 6.5 シークレット設定の確認
 ```bash
-# シークレットの存在確認
+# 全シークレットの一覧確認
+gcloud secrets list
+
+# 特定シークレットの存在確認（例：OpenAI APIキー）
 gcloud secrets list --filter="name:openai-api-key"
 
 # シークレットのバージョン確認
-gcloud secrets versions list openai-api-key
+gcloud secrets versions list SECRET_NAME
 
-# 最新シークレットの内容確認
+# 最新シークレットの内容確認（例）
 gcloud secrets versions access latest --secret="openai-api-key"
 
 # 権限確認
-gcloud secrets get-iam-policy openai-api-key
+gcloud secrets get-iam-policy SECRET_NAME
 ```
-
-### 重要な注意点
-- **APIキーの管理**: OpenAI APIキーは使用量に応じて課金されるため、適切に管理してください
-- **権限の最小化**: Secret Managerの権限は必要最小限のサービスアカウントにのみ付与してください
-- **定期的なローテーション**: セキュリティ向上のため、定期的にAPIキーを更新することを推奨します
 
 ## 手順7: Workload Identity の設定
 

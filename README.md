@@ -94,7 +94,69 @@ cd your-app-name
 4. **`Dockerfile`** を編集:
    - 必要に応じてCMDを更新
 
-### 3. GitHub Actions ワークフロー作成
+### 3. 外部APIキーを使用する場合の追加設定
+
+新しい外部APIキー（OpenAI、Anthropic、Google AI等）を使用するアプリの場合、以下の追加手順を実行してください。
+
+#### 3.1 Secret Manager にAPIキーを追加
+
+```bash
+# 新しいAPIキーをSecret Managerに保存
+echo -n "your_api_key_here" | gcloud secrets create your-api-key-name --data-file=-
+
+# 例：Claude APIキーの場合
+echo -n "sk-ant-..." | gcloud secrets create claude-api-key --data-file=-
+```
+
+#### 3.2 アプリの設定ファイルを更新
+
+**`src/core/config.py`** に新しい環境変数を追加:
+
+```python
+class Settings(BaseSettings):
+    APP_NAME: str = "your-app-name"
+    PROJECT_ID: str = ""
+    CLOUD_LOGGING: bool = False
+    
+    # 新しいAPIキーを追加
+    YOUR_API_KEY: str = ""  # 環境変数名に対応
+    
+    # 例：Claude APIキーの場合
+    CLAUDE_API_KEY: str = ""
+```
+
+#### 3.3 GitHub Actions ワークフローにシークレットを追加
+
+デプロイ用ワークフローファイルで `--update-secrets` オプションを追加:
+
+```yaml
+- name: Deploy Cloud Run with Secret Manager
+  run: |
+    gcloud run deploy ${{ inputs.app_name }} \
+    # ... 他の設定 ...
+    --update-secrets YOUR_API_KEY=your-api-key-name:latest
+    
+    # 例：複数のシークレットを使用する場合
+    # --update-secrets OPENAI_API_KEY=openai-api-key:latest,CLAUDE_API_KEY=claude-api-key:latest
+```
+
+#### 3.4 Cloud Run サービスアカウントに権限付与（必要に応じて）
+
+新しいシークレットへのアクセス権限を付与:
+
+```bash
+# プロジェクトのデフォルトCompute Engine サービスアカウントを取得
+COMPUTE_SA=$(gcloud projects describe $PROJECT_ID --format="value(projectNumber)")-compute@developer.gserviceaccount.com
+
+# 新しいシークレットに対する権限付与
+gcloud secrets add-iam-policy-binding your-api-key-name \
+    --member="serviceAccount:$COMPUTE_SA" \
+    --role="roles/secretmanager.secretAccessor"
+```
+
+**注意**: Secret Manager の基本権限（`roles/secretmanager.secretAccessor`）が既にサービスアカウントに付与されている場合、この手順は不要です。
+
+### 4. GitHub Actions ワークフロー作成
 
 ```bash
 # テンプレートをコピー
@@ -105,7 +167,7 @@ cp .github/workflows/deploy-template.yml .github/workflows/your-app-name.yml
 - `{APP_NAME}` を実際のアプリ名に置換
 - `{APP_DIRECTORY}` をディレクトリ名に置換
 
-### 4. インフラとデプロイ
+### 5. インフラとデプロイ
 
 1. **初回セットアップ**: `infrastructure.yml` ワークフローを実行して共有Security Policyを作成
 2. 変更をコミット・プッシュ
