@@ -85,7 +85,7 @@ jobs:
           --port ${{ env.PORT }} \
           --ingress=internal-and-cloud-load-balancing \
           --allow-unauthenticated \
-          --update-secrets OPENAI_API_KEY=openai-api-key:1
+          --update-secrets OPENAI_API_KEY=openai-api-key:latest
       
       - name: Create Terraform State Bucket (if not exists)
         run: |
