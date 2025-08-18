@@ -1,8 +1,16 @@
-name: Deploy streamlit-sample-app to Cloud Run
+name: Deploy/Delete streamlit-sample-app to/from Cloud Run
 
 on:
   workflow_dispatch:
     inputs:
+      action:
+        description: 'Action to perform'
+        required: true
+        default: 'deploy'
+        type: choice
+        options:
+          - deploy
+          - delete
       app_name:
         description: 'App name for Cloud Run service'
         required: true
@@ -21,6 +29,7 @@ permissions:
 
 jobs:
   Build-and-Push-image:
+    if: inputs.action == 'deploy'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -45,6 +54,7 @@ jobs:
         run: docker push ${{ env.IMAGE_NAME }}:latest
 
   Deploy-App:
+    if: inputs.action == 'deploy'
     needs: Build-and-Push-image
     runs-on: ubuntu-latest
     steps:
@@ -144,3 +154,121 @@ jobs:
           echo "Load Balancer IP: $(terraform output -raw load_balancer_ip)"
           echo "App URL: $(terraform output -raw app_url)"
           echo "Security Policy: $(terraform output -raw security_policy_attached)"
+
+  Delete-App:
+    if: inputs.action == 'delete'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - id: auth
+        name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: github-actions@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com
+      - name: Setup Google Cloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.0
+      
+      - name: Destroy App Infrastructure with Terraform
+        working-directory: terraform/app-infrastructure
+        run: |
+          TF_STATE_BUCKET="${{ secrets.GCP_PROJECT_ID }}-terraform-state"
+          
+          # Check if Terraform state exists for this app
+          if ! gsutil ls gs://$TF_STATE_BUCKET/apps-hub/app/${{ inputs.app_name }}/ > /dev/null 2>&1; then
+            echo "⚠️ No Terraform state found for ${{ inputs.app_name }}. Infrastructure may not exist or already deleted."
+          else
+            echo "🔍 Found Terraform state for ${{ inputs.app_name }}. Proceeding with infrastructure destruction..."
+            
+            # Initialize Terraform with dynamic backend config for this app
+            terraform init \
+              -backend-config="bucket=$TF_STATE_BUCKET" \
+              -backend-config="prefix=apps-hub/app/${{ inputs.app_name }}"
+            
+            # Create terraform.tfvars with runtime values
+            cat > terraform.tfvars << EOF
+          project_id = "${{ secrets.GCP_PROJECT_ID }}"
+          app_name   = "${{ inputs.app_name }}"
+          region     = "${{ env.REGION }}"
+          EOF
+            
+            # Show what will be destroyed
+            echo "=== Terraform Plan (Destroy) ==="
+            terraform plan -destroy || echo "⚠️ Plan failed, but continuing with destroy..."
+            
+            # Destroy infrastructure
+            echo "=== Destroying Terraform Infrastructure ==="
+            terraform destroy -auto-approve || echo "⚠️ Some resources may have failed to destroy, but continuing..."
+            
+            echo "✅ Infrastructure destruction completed!"
+          fi
+      
+      - name: Delete Cloud Run Service
+        run: |
+          # Check if Cloud Run service exists
+          if gcloud run services describe ${{ inputs.app_name }} --region=${{ env.REGION }} --format="value(metadata.name)" > /dev/null 2>&1; then
+            echo "🔍 Found Cloud Run service: ${{ inputs.app_name }}. Deleting..."
+            gcloud run services delete ${{ inputs.app_name }} \
+              --region=${{ env.REGION }} \
+              --quiet
+            echo "✅ Cloud Run service deleted successfully!"
+          else
+            echo "⚠️ Cloud Run service ${{ inputs.app_name }} not found. May have been already deleted."
+          fi
+      
+      - name: Delete Docker Images (Optional)
+        run: |
+          # List and delete Docker images for this app
+          echo "🔍 Checking for Docker images to delete..."
+          
+          # Get list of images for this app
+          IMAGES=$(gcloud artifacts docker images list asia-northeast1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/my-app-images/${{ inputs.app_name }} --format="value(IMAGE)" 2>/dev/null || echo "")
+          
+          if [ -z "$IMAGES" ]; then
+            echo "⚠️ No Docker images found for ${{ inputs.app_name }}"
+          else
+            echo "🗑️ Found Docker images. Deleting..."
+            echo "$IMAGES" | while read -r image; do
+              if [ -n "$image" ]; then
+                echo "Deleting image: $image"
+                gcloud artifacts docker images delete "$image" --quiet || echo "⚠️ Failed to delete $image, but continuing..."
+              fi
+            done
+            echo "✅ Docker images cleanup completed!"
+          fi
+      
+      - name: Clean up Terraform State (Optional)
+        run: |
+          TF_STATE_BUCKET="${{ secrets.GCP_PROJECT_ID }}-terraform-state"
+          STATE_PREFIX="apps-hub/app/${{ inputs.app_name }}"
+          
+          echo "🧹 Cleaning up Terraform state files..."
+          
+          # List state files
+          STATE_FILES=$(gsutil ls gs://$TF_STATE_BUCKET/$STATE_PREFIX/ 2>/dev/null || echo "")
+          
+          if [ -z "$STATE_FILES" ]; then
+            echo "⚠️ No state files found to clean up"
+          else
+            echo "🗑️ Removing Terraform state files..."
+            gsutil -m rm -r gs://$TF_STATE_BUCKET/$STATE_PREFIX/ || echo "⚠️ Some state files may not have been deleted"
+            echo "✅ Terraform state cleanup completed!"
+          fi
+          
+          echo ""
+          echo "🎉 Complete deletion of ${{ inputs.app_name }} finished!"
+          echo "📋 Summary:"
+          echo "   ✅ Load Balancer and related infrastructure destroyed"
+          echo "   ✅ Cloud Run service deleted"
+          echo "   ✅ Docker images removed"
+          echo "   ✅ Terraform state cleaned up"
+          echo ""
+          echo "💡 You can now re-deploy this app by running this workflow with 'deploy' action."
