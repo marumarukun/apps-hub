@@ -25,7 +25,8 @@ class WhisperService:
             self.model = WhisperModel(
                 model_name, 
                 device=self.device,
-                compute_type=compute_type
+                compute_type=compute_type,
+                local_files_only=False
             )
             logger.info(f"Model loaded successfully on {self.device_name}")
             return f"✅ Model loaded on {self.device_name}"
